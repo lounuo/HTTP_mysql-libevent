@@ -130,21 +130,21 @@ void clear_head(int sock)
 }
 
 //发送正确响应
-void send_response(int sock, char *path, size_t size)
+void send_response(data_buf_p data, size_t size)
 {
 	char *response = "HTTP/1.0 200 OK\r\n\r\n";
-	if(send(sock, response, strlen(response), 0) < 0)
+	if(send(data->_fd, response, strlen(response), 0) < 0)
 	{
 		print_log(errno, __FUNCTION__, __LINE__);
 		return;
 	}
-	int out_fd = open(path, O_RDONLY);
+	int out_fd = open(data->_path, O_RDONLY);
 	if(out_fd < 0)
 	{
 		print_log(errno, __FUNCTION__, __LINE__);
 		return;
 	}
-	if(sendfile(sock, out_fd, NULL, size) < 0)
+	if(sendfile(data->_fd, out_fd, NULL, size) < 0)
 	{
 		print_log(errno, __FUNCTION__, __LINE__);
 		return;
@@ -179,28 +179,19 @@ int GetContentLength(int sock)
 }
 
 //执行可执行文件
-void exec_response(int sock, const char *met, const char *path, const char *query_string)
+void exec_response(data_buf_p data)
 {
 	char query_str[_SIZE_];
 	char method[_SIZE_/2];
-	int con_len = 0;
-	
-	if(strcasecmp(met, "POST") == 0)//如果是POST方法，需要获取正文长度Content-Length
-	{
-		con_len = GetContentLength(sock);
-	}
+	sprintf(query_str, "QUERY_STRING=%s", data->_query_string);
+	int ret = putenv(query_str);//导入环境变量query_string
+	if(ret == 0)
+		printf("put env QUERY_STRING success...\n");
 	else
-	{
-		sprintf(query_str, "QUERY_STRING=%s", query_string);
-		int ret = putenv(query_str);//导入环境变量query_string
-		if(ret == 0)
-			printf("put env QUERY_STRING success...\n");
-		else
-			printf("put env QUERY_STRING failed...\n");
-	}
+		printf("put env QUERY_STRING failed...\n");
 	
-	sprintf(method, "METHOD=%s", met);
-	int ret = putenv(method);//导入环境变量query_string
+	sprintf(method, "METHOD=%s", data->_method);
+	ret = putenv(method);//导入环境变量query_string
 	if(ret == 0)
 		printf("put env METHOD success...\n");
 	else
@@ -230,27 +221,37 @@ void exec_response(int sock, const char *met, const char *path, const char *quer
 		close(pipe1[0]);
 		close(pipe2[1]);
 
-		execl(path, path, NULL);
+		execl(data->_path, data->_path, NULL);
 	}
 	else//父进程
 	{
 		close(pipe1[0]);//父进程要往pipe1当中写入数据
 		close(pipe2[1]);//从pipe2中读取数据
 
-		clear_head(sock);
+		clear_head(data->_fd);
 
 		char ch;
+		int con_len = data->_content_length;
 		while(con_len > 0)
 		{
-			if(recv(sock, &ch, 1, 0) > 0)
+			if(recv(data->_fd, &ch, 1, 0) > 0)
 				write(pipe1[1], &ch, 1);
-
+				
 			--con_len;
 		}
 
-		while(read(pipe2[0], &ch, 1))
+		memset(data->_buf, '\0', sizeof(data->_buf));
+		int index = 0;
+		int ret = 0;
+		while(ret = read(pipe2[0], &ch, 1))
 		{
-			send(sock, &ch, 1, 0);
+			if(ret > 0)
+				(data->_buf)[index++] = ch;
+			else
+			{
+				print_log(errno, __FUNCTION__, __LINE__);
+				break;
+			}
 		}
 		//printf("asejfuhauhsdfhajhdsfjqiowefhasdjfhakjsdfkj\n");
 
@@ -259,23 +260,17 @@ void exec_response(int sock, const char *met, const char *path, const char *quer
 	}
 }
 
-void* thread_run(void *client_sock)
-{
-	int sock = (int)client_sock;
-	accept_request(sock);
-	return NULL;
-}
-
 //处理远端请求
-void accept_request(int sock)
+int accept_request(data_buf_p data)
 {
 	//这里最好不要用assert进行参数的差错判断，因为有可能套接字的文件描述符恰好为0号文件描述符
+	int sock = data->_fd;
 	char buf[_SIZE_];
 	char request_line[_SIZE_];
 	char method[(_SIZE_/2)];
 	char url[(_SIZE_/2)];
 	char query_string[_SIZE_];
-	int cgi = 0;
+	data->_cgi = 0;
 
 	memset(method, '\0', sizeof(method));
 	memset(url, '\0', sizeof(url));
@@ -292,7 +287,7 @@ void accept_request(int sock)
 	if(get_line(sock, request_line, sizeof(request_line)) == 0)//首先获取请求行信息，需要知道请求的方法，这里只考虑GET和POST方法
 	{
 		print_log(errno, __FUNCTION__, __LINE__);
-		return;
+		return -1;
 	}
 
 	printf("%s\n", request_line);//打印出获取的请求行
@@ -311,7 +306,7 @@ void accept_request(int sock)
 	//表示已经获取到了方法
 	if(strcasecmp(method, "POST") == 0)//如果为POST方法，则使用cgi模式
 	{
-		cgi = 1;
+		data->_cgi = 1;
 		int i = 0;
 		for(; (request_line[index]!='\0')&&(!isspace(request_line[index])); ++i,++index)
 			url[i] = request_line[index];//提取出url
@@ -326,7 +321,7 @@ void accept_request(int sock)
 				if(*p_query_str == '?')//如果url的字段中含有?，则表示含有参数信息，需要使用cgi模式
 				{
 					*p_query_str = '\0';//将url中的路径和参数一分为二
-					cgi = 1;
+					data->_cgi = 1;
 				}
 				else if(isspace(*p_query_str))
 				{
@@ -334,7 +329,7 @@ void accept_request(int sock)
 					break;
 				}
 			}
-			if(cgi == 1)
+			if(data->_cgi == 1)
 			{
 				int i = index+strlen(&(request_line[index]))+1;//i指向参数部分
 				strcpy(query_string, &(request_line[i]));//提取出参数部分
@@ -345,12 +340,8 @@ void accept_request(int sock)
 	else
 	{
 		//除了GET和POST之外
-		error_response(sock, 405);
-		return;
+		return 405;
 	}
-
-	//if(index < line_size)
-	//	strcpy(url, _DF_PATH_);//如果请求行没有url，则设置为默认路径
 
 	char path[_SIZE_/2] = "/home/lounuo/HTTP";
 	if(url[0] == '/')
@@ -362,8 +353,7 @@ void accept_request(int sock)
 	if(stat(path, &st) < 0)
 	{
 		printf("error path:%s\n",path);
-		error_response(sock, 404);//请求资源不存在
-		return;
+		return 404;
 	}
 
 	if((st.st_mode & S_IFDIR) != 0)//判断是否为一个文件夹
@@ -372,28 +362,164 @@ void accept_request(int sock)
 	}
 	else if((st.st_mode & S_IXUSR) || (st.st_mode & S_IXGRP) || (st.st_mode & S_IXOTH))//判断是否为一个可执行文件
 	{
-		cgi = 1;
+		data->_cgi = 1;
 	}
 	//else
 	//{
 	//	error_response(sock, 404);//即不是文件也不是文件夹，请求资源不存在
 	//	return NULL;
 	//}
-	if(cgi == 0)//一定是GET方法且不含参数的请求
+	//
+	strcpy(data->_method, method);
+	strcpy(data->_path, path);
+	strcpy(data->_query_string, query_string);
+	if(data->_cgi == 0)//一定是GET方法且不含参数的请求
 	{
 		clear_head(sock);
-		send_response(sock, path, st.st_size);//发回响应
+		//send_response(sock, path, st.st_size);//发回响应
 	}
 	else
 	{
-		exec_response(sock, method, path, query_string);
+		if(strcasecmp(data->_method, "POST") == 0)
+		{
+			data->_content_length = GetContentLength(sock);
+		}
+		else
+			data->_content_length = 0;
+		//exec_response(sock, method, path, query_string);
+		exec_response(data);
 	}
 
-	close(sock);
+	//close(sock);
 #endif
-	return;
+	return 0;
 }
 
+//epoll
+void epoll_server(int sock)
+{
+	int cgi = 0;
+	int epoll_fd = epoll_create(256);//创建epoll实例
+	if(epoll_fd < 0)
+	{
+		print_log(errno, __FUNCTION__, __LINE__);
+		exit(1);
+	}
+
+	//用一个epoll_event结构体向epoll实例中注册需要IO的事件
+	struct epoll_event ep_ev;
+	ep_ev.events = EPOLLIN;
+	ep_ev.data.fd = sock;
+	if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, sock, &ep_ev) < 0)
+	{
+		print_log(errno, __FUNCTION__, __LINE__);
+		exit(2);
+	}
+
+	//申请空间用于存放就绪事件
+	struct epoll_event evs[_MAX_NUM_];
+	int maxnum = _MAX_NUM_;
+	int timeout = -1;//以阻塞方式等待，单位为毫秒
+	int ret = 0;//用于接收epoll_wait的返回值，也就是就绪事件的个数
+
+	while(1)
+	{
+		switch((ret = epoll_wait(epoll_fd, evs, maxnum, timeout)))
+		{
+			case -1://出错
+				print_log(errno, __FUNCTION__, __LINE__);
+				break;
+			case 0://超时
+				printf("timeout...\n");
+				break;
+			default://至少有一个事件就绪
+				{
+					//printf("IO ready:%d\n", ret);
+					int i = 0;
+					for(; i < ret; ++i)
+					{
+						//判断是否为监听套接字就绪，如果是，处理链接请求
+						if((evs[i].data.fd == sock) && (evs[i].events & EPOLLIN))
+						{
+							struct sockaddr_in client;
+							socklen_t client_len = sizeof(client);
+
+							int accept_sock = accept(sock, (struct sockaddr*)&client, &client_len);
+							if(accept_sock < 0)
+							{
+								print_log(errno, __FUNCTION__, __LINE__);
+								continue;
+							}
+							char *client_ip = inet_ntoa(client.sin_addr);
+							int client_port = ntohs(client.sin_port);
+							printf("get a request from client...[ip]:%s  [port]:%d\n", client_ip, client_port);
+
+							ep_ev.events = EPOLLIN;
+							ep_ev.data.fd = accept_sock;
+							if(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, accept_sock, &ep_ev) < 0)
+							{
+								print_log(errno, __FUNCTION__, __LINE__);
+								close(accept_sock);
+							}
+						}
+						else//除了监听套接字之外的IO套接字就绪
+						{
+							if(evs[i].events & EPOLLIN)//读事件就绪
+							{
+								data_buf_p _data = (data_buf_p)malloc(sizeof(data_buf_t));
+								if(_data == NULL)
+								{
+									print_log(errno, __FUNCTION__, __LINE__);
+									continue;
+								}
+								_data->_fd = evs[i].data.fd;
+								_data->_err_num = accept_request(_data);//读取数据
+								
+								ep_ev.data.ptr = _data;
+								ep_ev.events = EPOLLOUT;
+								epoll_ctl(epoll_fd, EPOLL_CTL_MOD, evs[i].data.fd, &ep_ev);
+								//printf("read data over\n");
+							}
+							else if(evs[i].events & EPOLLOUT)//写事件就绪
+							{
+								data_buf_p _data = (data_buf_p)evs[i].data.ptr;
+								if(_data->_err_num == 0)//如果返回值为0，则表示正常退出
+								{
+									if(_data->_cgi == 0)//cgi=0
+									{
+										struct stat st;
+										if(stat(_data->_path, &st) < 0)
+										{
+											print_log(errno, __FUNCTION__, __LINE__);
+											return;
+										}
+										send_response(_data, st.st_size);
+										//printf("send data over\n");
+									}
+									else//cgi=1
+									{
+										send(_data->_fd, _data->_buf, strlen(_data->_buf), 0);
+										//printf("exec over\n");
+									}
+								}
+								else if(_data->_err_num > 0)//错误状态码
+									error_response(_data->_fd, _data->_err_num);
+
+								if(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, _data->_fd, NULL) < 0)
+									print_log(errno, __FUNCTION__, __LINE__);
+								close(_data->_fd);
+								free(_data);
+								//printf("all of data over,free\n");
+							}
+							else
+							{}
+						}
+					}
+				}
+				break;
+		}
+	}
+}
 
 
 

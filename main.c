@@ -13,25 +13,27 @@ int main(int argc, char *argv[])
 
 	int listen_sock = StartUp(ip, port);
 
-	struct sockaddr_in client;
-	socklen_t client_len = sizeof(client);
-	while(1)
-	{
-		int client_sock = accept(listen_sock, (struct sockaddr*)&client, &client_len);
-		if(client_sock < 0)
-		{
-			print_log(errno, __FUNCTION__, __LINE__);
-			continue;
-		}
-		char *client_ip = inet_ntoa(client.sin_addr);
-		int client_port = ntohs(client.sin_port);
+	//struct sockaddr_in client;
+	//socklen_t client_len = sizeof(client);
+	//while(1)
+	//{
+	//	int client_sock = accept(listen_sock, (struct sockaddr*)&client, &client_len);
+	//	if(client_sock < 0)
+	//	{
+	//		print_log(errno, __FUNCTION__, __LINE__);
+	//		continue;
+	//	}
+	//	char *client_ip = inet_ntoa(client.sin_addr);
+	//	int client_port = ntohs(client.sin_port);
 
-		printf("get a request...[ip]:%s  [port]:%d\n", client_ip, client_port);
+	//	printf("get a request...[ip]:%s  [port]:%d\n", client_ip, client_port);
 
-		pthread_t tid;
-		pthread_create(&tid, NULL, thread_run, (void*)client_sock);
-		pthread_detach(tid);
-	}
+	//	pthread_t tid;
+	//	pthread_create(&tid, NULL, thread_run, (void*)client_sock);
+	//	pthread_detach(tid);
+	//}
+	
+	epoll_server(listen_sock);
 	close(listen_sock);
 	return 0;
 }
