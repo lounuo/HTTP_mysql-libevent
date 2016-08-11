@@ -1,0 +1,25 @@
+<html>
+<head>
+	<h1>Hello, this is a database form about students' information</h1>
+</head>
+<body>
+	<hr/>
+	<form action="cgi_bin/MySql/my_sql" method="GET">
+	<p>Please choose your operation:</p>
+	Operation:<input type="radio" name="operation" value="insert"/>Insert
+	<input type="radio" name="operation" value="delete"/>Delete
+	<input type="radio" name="operation" value="select"/>Select
+	<input type="radio" name="operation" value="modify"/>Modify</br></br>
+	<p>Please input your information:</p>
+		Name: <input type="text" name="name"/><br/>
+		Sex:<input type="radio" name="sex" value="gentleman"/>Gentleman
+		<input type="radio" name="sex" value="lady"/>lady<br/>
+		Age:<input type="text" name="age"/><br/>
+		School:<input type="text" name="school"/><br/>
+		<input type="submit"/><br/>
+	</form>
+	<hr/>
+	<img src="htdocs/qiaobawa.jpg"/>
+	<p>My Http Server</p>
+</body>
+</html>

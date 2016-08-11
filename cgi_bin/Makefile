@@ -10,5 +10,5 @@ clean:
 
 .PHONY:output
 output:$(BIN)
-	cp -f math_cgi output
+	cp -f math_cgi ../output/cgi_bin
 	

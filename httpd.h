@@ -18,7 +18,7 @@
 
 #define _BACKLOG_ 10
 #define _SIZE_ 10240
-#define _DF_PATH_ "htdocs/response.html"
+#define _DF_PATH_ "htdocs/mysql_response.html"
 #define _MAX_NUM_ 20
 
 typedef struct data_buf
