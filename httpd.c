@@ -522,6 +522,79 @@ void epoll_server(int sock)
 }
 
 
+//data_buf_p _data = (data_buf_p)malloc(sizeof(data_buf_t));
+data_buf_p _data;
+
+void write_fc(int write_sock, short event, void *arg)
+{
+	struct event_base *base = (struct event_base*)arg;
+
+	//data_buf_p _data = (data_buf_p)evs[i].data.ptr;
+	if(_data->_err_num == 0)//如果返回值为0，则表示正常退出
+	{
+		if(_data->_cgi == 0)//cgi=0
+		{
+			struct stat st;
+			if(stat(_data->_path, &st) < 0)
+			{
+				print_log(errno, __FUNCTION__, __LINE__);
+				return;
+			}
+			send_response(_data, st.st_size);
+			//printf("send data over\n");
+		}
+		else//cgi=1
+		{
+			send(_data->_fd, _data->_buf, strlen(_data->_buf), 0);
+			//printf("exec over\n");
+		}
+	}
+	else if(_data->_err_num > 0)//错误状态码
+		error_response(_data->_fd, _data->_err_num);
+
+	//if(epoll_ctl(epoll_fd, EPOLL_CTL_DEL, _data->_fd, NULL) < 0)
+	//	print_log(errno, __FUNCTION__, __LINE__);
+	close(_data->_fd);
+	//free(_data);
+}
+
+void read_fc(int read_sock, short event, void *arg)
+{
+	struct event_base *base = (struct event_base*)arg;
+
+	_data = (data_buf_p)malloc(sizeof(data_buf_t));
+	if(_data == NULL)
+	{
+		print_log(errno, __FUNCTION__, __LINE__);
+		return;
+	}
+	_data->_fd = read_sock;
+	_data->_err_num = accept_request(_data);//读取数据
+
+	struct event *write_event;
+	write_event = event_new(base, read_sock, EV_WRITE, write_fc, (void*)base);
+	event_add(write_event, NULL);
+	event_base_dispatch(base);
+}
+
+void accept_fc(int listen_sock, short event, void *arg)
+{
+	struct event_base *base = (struct event_base*)arg;
+	struct sockaddr_in client;
+	socklen_t client_len = sizeof(client);
+
+	int client_fd = accept(listen_sock, (struct sockaddr*)&client, &client_len);
+	if(client_fd < 0)
+	{
+		print_log(errno, __FUNCTION__, __LINE__);
+		return;
+	}
+
+	struct event *read_event;
+	read_event = event_new(base, client_fd, EV_READ, read_fc, (void*)base);
+	event_add(read_event, NULL);
+	event_base_dispatch(base);
+}
 
 
 

@@ -33,8 +33,17 @@ int main(int argc, char *argv[])
 	//	pthread_detach(tid);
 	//}
 	
-	epoll_server(listen_sock);
-	close(listen_sock);
+	//epoll_server(listen_sock);
+	
+	struct event_base *base = event_base_new();
+	assert(base);
+
+	struct event *listen_event;
+	listen_event = event_new(base, listen_sock, EV_READ|EV_PERSIST, accept_fc, (void*)base);
+	event_add(listen_event, NULL);
+	event_base_dispatch(base);
+
+	//close(listen_sock);
 	return 0;
 }
 

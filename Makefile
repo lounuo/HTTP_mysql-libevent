@@ -1,5 +1,5 @@
 ROOT_PATH=$(shell pwd)
-LDFLAGS=#-lpthread#-static
+LDFLAGS=-levent#-lpthread#-static
 FLAGS=#-D_DEBUG_#-g
 CC=gcc
 BIN=httpd

@@ -16,6 +16,9 @@
 #include <unistd.h>
 #include <fcntl.h>
 
+#include <event.h>
+#include <event2/event.h>
+
 #define _BACKLOG_ 10
 #define _SIZE_ 10240
 #define _DF_PATH_ "htdocs/mysql_response.html"
@@ -47,3 +50,8 @@ void send_response(data_buf_p data, size_t size);
 //void exec_response(int sock, const char *mathod, const char *path, const char *query_str);
 void exec_response(data_buf_p data);
 void epoll_server(int sock);
+
+
+void write_fc(int write_sock, short event, void *arg);
+void read_fc(int read_sock, short event, void *arg);
+void accept_fc(int listen_sock, short event, void *arg);
